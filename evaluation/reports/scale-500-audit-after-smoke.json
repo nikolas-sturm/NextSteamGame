@@ -1,0 +1,46 @@
+{
+  "build_id": "build_a3285b5cd43388009d2e7d1b",
+  "candidate_degree": {
+    "maximum": 409,
+    "median": 274.5,
+    "minimum": 50,
+    "p95": 387
+  },
+  "coverage": {
+    "evidence_game_ratio": 0.838,
+    "graph_source_ratio": 1.0,
+    "lane_evidence": {
+      "mechanics": 510,
+      "narrative": 184,
+      "structure_loop": 204,
+      "vibe": 321
+    },
+    "lane_game_ratio": {
+      "mechanics": 0.656,
+      "narrative": 0.316,
+      "structure_loop": 0.328,
+      "vibe": 0.486
+    },
+    "nonzero_lane_edge_ratio": {
+      "mechanics": 0.6404811247917429,
+      "narrative": 0.10698524929903694,
+      "structure_loop": 0.11335690194644236,
+      "vibe": 0.3199317322930635
+    }
+  },
+  "evaluated_at": "2026-08-10T22:30:02.337562+00:00",
+  "integrity": {
+    "checksums_verified": 62,
+    "counts": {
+      "edges": 123045,
+      "evidence": 1219,
+      "games": 500
+    },
+    "status": "passed"
+  },
+  "kind": "artifact_audit",
+  "limitations": [
+    "Coverage and integrity do not establish human relevance or explanation correctness."
+  ],
+  "report_version": 1
+}

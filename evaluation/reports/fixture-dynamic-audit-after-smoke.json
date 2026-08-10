@@ -1,0 +1,46 @@
+{
+  "build_id": "synthetic-fixture-v1",
+  "candidate_degree": {
+    "maximum": 1,
+    "median": 1.0,
+    "minimum": 1,
+    "p95": 1
+  },
+  "coverage": {
+    "evidence_game_ratio": 1.0,
+    "graph_source_ratio": 1.0,
+    "lane_evidence": {
+      "mechanics": 4,
+      "narrative": 4,
+      "structure_loop": 4,
+      "vibe": 4
+    },
+    "lane_game_ratio": {
+      "mechanics": 1.0,
+      "narrative": 1.0,
+      "structure_loop": 1.0,
+      "vibe": 1.0
+    },
+    "nonzero_lane_edge_ratio": {
+      "mechanics": 1.0,
+      "narrative": 1.0,
+      "structure_loop": 1.0,
+      "vibe": 1.0
+    }
+  },
+  "evaluated_at": "2026-01-01T00:00:00+00:00",
+  "integrity": {
+    "checksums_verified": 62,
+    "counts": {
+      "edges": 2,
+      "evidence": 16,
+      "games": 2
+    },
+    "status": "passed"
+  },
+  "kind": "artifact_audit",
+  "limitations": [
+    "Coverage and integrity do not establish human relevance or explanation correctness."
+  ],
+  "report_version": 1
+}

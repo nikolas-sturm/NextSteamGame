@@ -1,7 +1,10 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$ArtifactDir,
-    [int]$Port = 18080
+    [int]$Port = 18080,
+    [string]$LoadOutput = "",
+    [int]$LoadRequests = 1000,
+    [int]$LoadConcurrency = 25
 )
 
 $ErrorActionPreference = "Stop"
@@ -105,6 +108,18 @@ try {
         -not $rankingValid
     ) {
         throw "Recommendation smoke response was invalid"
+    }
+
+    if ($LoadOutput) {
+        & uv run -- nextsteam-pipeline benchmark-api `
+            --base-url "http://127.0.0.1:$Port" `
+            --artifact $artifact `
+            --output $LoadOutput `
+            --requests $LoadRequests `
+            --concurrency $LoadConcurrency
+        if ($LASTEXITCODE -ne 0) {
+            throw "API load benchmark failed"
+        }
     }
 } finally {
     Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue

@@ -19,6 +19,7 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo test --workspace --locked
+      - run: PROPTEST_CASES=10000 cargo test --locked -p recommendation-core
 
   python:
     runs-on: ubuntu-latest

@@ -1,0 +1,26 @@
+{
+  "build_id": "synthetic-fixture-v1",
+  "concurrency": 16,
+  "elapsed_seconds": 0.2908480000041891,
+  "error_samples": [],
+  "errors": 0,
+  "kind": "api_load",
+  "latency_ms": {
+    "maximum": 37.329499995394144,
+    "p50": 7.949600003485102,
+    "p95": 17.933700000867248,
+    "p99": 24.343899996893015
+  },
+  "limitations": [
+    "Local load measurements do not predict production network or host performance."
+  ],
+  "report_version": 1,
+  "requests": 500,
+  "requests_per_second": 1719.1110132880353,
+  "retrieval_modes": {
+    "dynamic_vector": 500
+  },
+  "status_counts": {
+    "200": 500
+  }
+}

@@ -11,6 +11,7 @@ from .benchmark import benchmark_embeddings, benchmark_indexes, synthetic_vector
 from .discovery import Eligibility, discover_catalog, select_slice, write_catalog
 from .evaluation import candidate_graph_size_report
 from .graph import build_candidate_graph
+from .load import benchmark_api
 from .ml import QwenEmbeddingAdapter
 from .runner import load_canonical, publish_fixture, run_compacted_pipeline, run_pipeline
 from .scale import ScaleTarget, acquire_shards, acquire_until_target, compact_shards
@@ -86,13 +87,16 @@ def select_slice_command(
 def acquire_scale(
     appids: Annotated[Path, typer.Option()],
     workdir: Annotated[Path, typer.Option()],
-    target: Annotated[str, typer.Option(help="500, 5000, 20000, or full")] = "500",
+    target: Annotated[str, typer.Option(help="500, 1000, 2000, 5000, 20000, or full")] = "500",
     shard_size: Annotated[int, typer.Option(min=1, max=500)] = 500,
 ) -> None:
     """Acquire bounded resumable shards and deterministically compact them."""
-    parsed: object = target if target == "full" else int(target)
-    if parsed not in {500, 5000, 20000, "full"}:
-        raise typer.BadParameter("target must be 500, 5000, 20000, or full")
+    try:
+        parsed: object = target if target == "full" else int(target)
+    except ValueError as error:
+        raise typer.BadParameter("target must be 500, 1000, 2000, 5000, 20000, or full") from error
+    if parsed not in {500, 1000, 2000, 5000, 20000, "full"}:
+        raise typer.BadParameter("target must be 500, 1000, 2000, 5000, 20000, or full")
     selected = _read_appids(appids)
     target_value = cast(ScaleTarget, parsed)
     if target_value == "full":
@@ -174,6 +178,45 @@ def benchmark_zvec(
     write_report(
         output, benchmark_indexes(factory, vectors, query_vectors, include_fp16=include_fp16)
     )
+
+
+@app.command("benchmark-api")
+def benchmark_api_command(
+    base_url: Annotated[str, typer.Option()],
+    artifact: Annotated[Path, typer.Option(exists=True, file_okay=False)],
+    output: Annotated[Path, typer.Option()],
+    requests: Annotated[int, typer.Option(min=1)] = 1000,
+    concurrency: Annotated[int, typer.Option(min=1)] = 25,
+) -> None:
+    """Measure recommendation API latency and errors under concurrent local load."""
+    manifest = read_json(artifact / "manifest.json")
+    graph = read_json(artifact / "graph.json")
+    source = next((record for record in graph["records"] if record["candidates"]), None)
+    if source is None:
+        raise typer.BadParameter("artifact graph has no candidate-bearing source")
+    payload = {
+        "seeds": [{"appid": source["source_appid"], "weight": 1.0}],
+        "intent": {
+            "lane_weights": {
+                lane: 1.0 for lane in ("mechanics", "narrative", "vibe", "structure_loop")
+            },
+            "include": [],
+            "exclude": [],
+            "text": None,
+        },
+        "limit": 10,
+    }
+    report = benchmark_api(
+        base_url,
+        payload,
+        str(manifest["build_id"]),
+        requests,
+        concurrency,
+    )
+    write_report(output, report)
+    typer.echo(output)
+    if report["errors"]:
+        raise typer.Exit(1)
 
 
 @app.command("evaluate-candidate-graph")

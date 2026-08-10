@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import httpx
+import pytest
 from test_pipeline import SyntheticTransport
 
 from nextsteam_pipeline.acquisition import RateLimiter, SteamSpyClient, SteamStoreClient, acquire
@@ -17,6 +19,7 @@ from nextsteam_pipeline.discovery import (
     write_catalog,
 )
 from nextsteam_pipeline.evaluation import candidate_graph_size_report
+from nextsteam_pipeline.load import benchmark_api
 from nextsteam_pipeline.ml import QwenEmbeddingAdapter
 from nextsteam_pipeline.models import LANES, Provenance
 from nextsteam_pipeline.runner import publish_fixture, run_compacted_pipeline
@@ -119,6 +122,8 @@ def test_scale_target_backfills_skips_and_compacts_exact_count(tmp_path: Path) -
 
     assert len(shards) == 2
     assert report["games"] == 3
+    with pytest.raises(ValueError, match="different appid catalog"):
+        acquire_until_target([3, 2, 1, 404], 3, tmp_path / "work", 3, store=store, spy=spy)
 
 
 class Matrix(list[list[float]]):
@@ -175,6 +180,34 @@ def test_benchmarks_measure_fake_adapters_without_claims() -> None:
         ("hnsw", "fp32"),
     }
     assert all(0 <= report["recall_at_k"] <= 1 for report in reports)
+
+
+def test_api_benchmark_reports_measured_requests() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/readyz":
+            return httpx.Response(200, json={"status": "ready"})
+        return httpx.Response(
+            200,
+            json={
+                "build_id": "build-test",
+                "retrieval": {"mode": "candidate_graph"},
+                "results": [],
+            },
+        )
+
+    report = benchmark_api(
+        "https://api.invalid",
+        {"seeds": []},
+        "build-test",
+        requests=20,
+        concurrency=4,
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert report["requests"] == 20
+    assert report["errors"] == 0
+    assert report["status_counts"] == {"200": 20}
+    assert report["latency_ms"]["p95"] >= 0
 
 
 def test_builds_one_index_per_lane(tmp_path: Path) -> None:

@@ -1,0 +1,14 @@
+{
+  "cases_per_property": 10000,
+  "command": "PROPTEST_CASES=10000 cargo test --locked -p recommendation-core",
+  "commit": "a310ac388458c96147bc7c7ff58a5db3ab75b23e",
+  "compile_seconds": 2.56,
+  "errors": 0,
+  "kind": "property_test",
+  "limitations": [
+    "Property tests exercise authored invariants; they do not replace coverage-guided fuzzing."
+  ],
+  "properties": 1,
+  "test_seconds": 1.39,
+  "tests_passed": 2
+}

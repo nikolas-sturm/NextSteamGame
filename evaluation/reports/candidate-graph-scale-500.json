@@ -1,0 +1,33 @@
+{
+  "kind": "candidate_graph_recall",
+  "reports": [
+    {
+      "actual_games": 500,
+      "edges": 123045,
+      "edges_per_game": 246.09,
+      "k": 10,
+      "recall_at_k": 0.9508,
+      "requested_games": 500
+    },
+    {
+      "actual_games": 500,
+      "edges": 123045,
+      "edges_per_game": 246.09,
+      "k": 10,
+      "recall_at_k": 0.9508,
+      "requested_games": 1000
+    },
+    {
+      "actual_games": 500,
+      "edges": 123045,
+      "edges_per_game": 246.09,
+      "k": 10,
+      "recall_at_k": 0.9508,
+      "requested_games": 2000
+    }
+  ],
+  "source": {
+    "path": "data\\build-500-2026-08-11\\stages\\canonicalize.data.json",
+    "sha256": "5b46ee15af7ab4786ee78dafdd9b5059cb49b7c7b0e5ebb36bd7a0d656cf0c8a"
+  }
+}

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Literal
@@ -12,7 +13,7 @@ from .models import StageManifest
 from .storage import write_parquet
 from .util import atomic_json, checksum, read_json
 
-ScaleTarget = Literal[500, 5000, 20000, "full"]
+ScaleTarget = Literal[500, 1000, 2000, 5000, 20000, "full"]
 
 
 def bounded_appids(appids: list[int], target: ScaleTarget) -> list[int]:
@@ -43,19 +44,16 @@ def acquire_shards(
         games_path = root / "games.parquet"
         reviews_path = root / "reviews.parquet"
         if manifest_path.exists() and games_path.exists() and reviews_path.exists():
-            saved = __import__("json").loads(manifest_path.read_text())
-            if saved["status"] == "complete" and saved["output_checksums"] == {
-                "games.parquet": checksum(games_path),
-                "reviews.parquet": checksum(reviews_path),
-            }:
+            saved = read_json(manifest_path)
+            if _complete_shard(saved, root, shard):
                 outputs.append(root)
                 continue
         stage = StageManifest(
             "acquire-shard",
-            "1.0.0",
+            "1.1.0",
             "running",
             counts={"requested": len(shard)},
-            metadata={"shard_id": shard_id},
+            metadata={"shard_id": shard_id, "appids_sha256": _appids_checksum(shard)},
         )
         atomic_json(manifest_path, stage)
         try:
@@ -97,9 +95,32 @@ def acquire_until_target(
 ) -> list[Path]:
     if target <= 0:
         raise ValueError("target must be positive")
+    if len(set(appids)) != len(appids):
+        raise ValueError("appids must be unique")
+    input_path = workdir / "scale-input.json"
+    fingerprint = _appids_checksum(appids)
+    if input_path.exists():
+        if read_json(input_path).get("appids_sha256") != fingerprint:
+            raise ValueError("scale workdir belongs to a different appid catalog")
+    else:
+        atomic_json(input_path, {"appids_sha256": fingerprint, "count": len(appids)})
+
     outputs: list[Path] = []
     acquired = 0
     cursor = 0
+    shard_root = workdir / "shards"
+    for index, root in enumerate(sorted(shard_root.glob("[0-9][0-9][0-9][0-9][0-9][0-9]"))):
+        if root.name != f"{index:06d}":
+            raise ValueError("scale workdir has non-contiguous shard IDs")
+        saved = read_json(root / "manifest.json")
+        requested = int(saved.get("counts", {}).get("requested", 0))
+        shard = appids[cursor : cursor + requested]
+        if requested <= 0 or not _complete_shard(saved, root, shard):
+            break
+        outputs.append(root)
+        acquired += int(saved["counts"]["games"])
+        cursor += requested
+
     while acquired < target and cursor < len(appids):
         available = len(appids) - cursor
         request_count = min(shard_size, available, max(target - acquired, min(50, available)))
@@ -120,6 +141,31 @@ def acquire_until_target(
     if acquired < target:
         raise ValueError(f"catalog exhausted after acquiring {acquired} of {target} eligible games")
     return outputs
+
+
+def _appids_checksum(appids: list[int]) -> str:
+    payload = "".join(f"{appid}\n" for appid in appids).encode()
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _complete_shard(saved: dict[str, Any], root: Path, appids: list[int]) -> bool:
+    saved_fingerprint = saved.get("metadata", {}).get("appids_sha256")
+    if saved_fingerprint is None:
+        state = read_json(root / "state.json")
+        attempted = set(state.get("completed", []))
+        attempted.update(int(item["appid"]) for item in state.get("failures", []))
+        if attempted != set(appids):
+            raise ValueError(f"{root}: legacy shard input does not match current catalog")
+    elif saved_fingerprint != _appids_checksum(appids):
+        raise ValueError(f"{root}: shard input does not match current catalog")
+    games_path = root / "games.parquet"
+    reviews_path = root / "reviews.parquet"
+    if not games_path.is_file() or not reviews_path.is_file():
+        return False
+    return saved.get("status") == "complete" and saved.get("output_checksums") == {
+        "games.parquet": checksum(games_path),
+        "reviews.parquet": checksum(reviews_path),
+    }
 
 
 def compact_shards(
