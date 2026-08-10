@@ -1,0 +1,24 @@
+[
+  {
+    "build_seconds": 0.04106640000100015,
+    "dimensions": 512,
+    "dtype": "fp32",
+    "k": 10,
+    "kind": "flat",
+    "queries": 20,
+    "query_seconds": 0.006682300001557451,
+    "recall_at_k": 1.0,
+    "vectors": 1000
+  },
+  {
+    "build_seconds": 0.028345300001092255,
+    "dimensions": 512,
+    "dtype": "fp32",
+    "k": 10,
+    "kind": "hnsw",
+    "queries": 20,
+    "query_seconds": 0.004230200000165496,
+    "recall_at_k": 1.0,
+    "vectors": 1000
+  }
+]

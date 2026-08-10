@@ -5,10 +5,19 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, cast
 
-from .acquisition import SteamSpyClient, SteamStoreClient, acquire
+import polars as pl
+
+from .acquisition import (
+    SteamSpyClient,
+    SteamStoreClient,
+    acquire,
+    game_from_dict,
+    review_from_dict,
+)
 from .canonical import MAPPING_VERSION, canonicalize
 from .evaluation import evaluate, graph_coverage
 from .graph import build_candidate_graph
+from .ml import DeterministicEmbeddingAdapter
 from .models import (
     CanonicalGame,
     Edge,
@@ -61,6 +70,7 @@ def run_pipeline(
     workdir: Path,
     output: Path,
     adapter: SemanticAdapter | None = None,
+    embedder: Any | None = None,
     *,
     source_git_sha: str = "unknown",
     pipeline_git_sha: str = "unknown",
@@ -85,7 +95,83 @@ def run_pipeline(
         stage.metadata["error"] = f"{type(error).__name__}: {error}"
         atomic_json(acquire_manifest, stage)
         raise
+    return _run_acquired_pipeline(
+        games,
+        reviews,
+        workdir,
+        output,
+        adapter,
+        embedder,
+        source_git_sha=source_git_sha,
+        pipeline_git_sha=pipeline_git_sha,
+        acquisition_kind="upstream_live",
+    )
+
+
+def run_compacted_pipeline(
+    compacted: Path,
+    workdir: Path,
+    output: Path,
+    adapter: SemanticAdapter | None = None,
+    embedder: Any | None = None,
+    *,
+    source_git_sha: str = "unknown",
+    pipeline_git_sha: str = "unknown",
+) -> Path:
+    games_path = compacted / "games.parquet"
+    reviews_path = compacted / "reviews.parquet"
+    manifest_path = compacted / "compaction-manifest.json"
+    if not all(path.is_file() for path in (games_path, reviews_path, manifest_path)):
+        raise FileNotFoundError("compacted input requires games, reviews, and compaction manifest")
+    manifest = read_json(manifest_path)
+    expected = manifest.get("checksums", {})
+    actual = {"games.parquet": checksum(games_path), "reviews.parquet": checksum(reviews_path)}
+    if expected != actual:
+        raise ValueError("compacted input checksum mismatch")
+    games = [game_from_dict(row) for row in pl.read_parquet(games_path).to_dicts()]
+    reviews = [review_from_dict(row) for row in pl.read_parquet(reviews_path).to_dicts()]
+    if manifest.get("games") != len(games) or manifest.get("reviews") != len(reviews):
+        raise ValueError("compacted input count mismatch")
+    workdir.mkdir(parents=True, exist_ok=True)
+    atomic_json(
+        workdir / "stages" / "load-compacted.json",
+        StageManifest(
+            "load-compacted",
+            "1.0.0",
+            "complete",
+            input_checksums={**actual, "compaction-manifest.json": checksum(manifest_path)},
+            counts={"games": len(games), "reviews": len(reviews)},
+        ),
+    )
+    return _run_acquired_pipeline(
+        games,
+        reviews,
+        workdir,
+        output,
+        adapter,
+        embedder,
+        source_git_sha=source_git_sha,
+        pipeline_git_sha=pipeline_git_sha,
+        acquisition_kind="compacted_scale",
+    )
+
+
+def _run_acquired_pipeline(
+    games: list[RawGame],
+    reviews: list[ReviewEvidence],
+    workdir: Path,
+    output: Path,
+    adapter: SemanticAdapter | None,
+    embedder: Any | None,
+    *,
+    source_git_sha: str,
+    pipeline_git_sha: str,
+    acquisition_kind: str,
+) -> Path:
+    if not games:
+        raise ValueError("acquisition produced no eligible games")
     semantic = adapter or DeterministicBaseline()
+    vectorizer = embedder or DeterministicEmbeddingAdapter()
     interpreted = _cached_stage(
         workdir,
         "interpret",
@@ -103,7 +189,7 @@ def run_pipeline(
         workdir,
         "canonicalize",
         lambda: _canonical(games, interpreted),
-        _load_canonical,
+        load_canonical,
         repr([asdict(item) for item in interpreted]),
     )
     edges = _cached_stage(
@@ -118,8 +204,12 @@ def run_pipeline(
     provenance = {
         "source_git_sha": source_git_sha,
         "pipeline_git_sha": pipeline_git_sha,
-        "acquisition_windows": {"started_at": min(fetched), "ended_at": max(fetched)},
-        "models": [semantic.metadata],
+        "acquisition_windows": {
+            "started_at": min(fetched),
+            "ended_at": max(fetched),
+            "kind": acquisition_kind,
+        },
+        "models": [semantic.metadata, vectorizer.metadata],
         "ontology_version": MAPPING_VERSION,
         "scorer_version": "candidate-jaccard-v1",
         "evaluation_report_id": stable_id("evaluation", sorted(evaluation.items())),
@@ -129,9 +219,18 @@ def run_pipeline(
         _cached_stage(
             workdir,
             "publish",
-            lambda: _publish(output, games, reviews, interpreted, canonical, edges, provenance),
+            lambda: _publish(
+                output, games, reviews, interpreted, canonical, edges, provenance, vectorizer
+            ),
             lambda row: Path(row["release"]),
-            repr(([asdict(item) for item in edges], provenance, str(output.resolve()))),
+            repr(
+                (
+                    [asdict(item) for item in edges],
+                    provenance,
+                    vectorizer.metadata,
+                    str(output.resolve()),
+                )
+            ),
         ),
     )
 
@@ -172,8 +271,9 @@ def _publish(
     canonical: list[CanonicalGame],
     edges: list[Edge],
     provenance: dict[str, Any],
+    embedder: Any,
 ) -> tuple[Path, dict[str, str]]:
-    release = publish(output, games, reviews, interpreted, canonical, edges, provenance)
+    release = publish(output, games, reviews, interpreted, canonical, edges, provenance, embedder)
     return release, {"release": str(release)}
 
 
@@ -184,7 +284,7 @@ def _load_interpreted(rows: list[dict[str, Any]]) -> list[InterpretedEvidence]:
     ]
 
 
-def _load_canonical(rows: list[dict[str, Any]]) -> list[CanonicalGame]:
+def load_canonical(rows: list[dict[str, Any]]) -> list[CanonicalGame]:
     return [
         CanonicalGame(
             **{
@@ -264,6 +364,7 @@ def publish_fixture(output: Path) -> Path:
         for game in games
     ]
     model = DeterministicBaseline()
+    vectorizer = DeterministicEmbeddingAdapter()
     interpreted = [
         item
         for game in games
@@ -289,9 +390,10 @@ def publish_fixture(output: Path) -> Path:
             "source_git_sha": "test-fixture",
             "pipeline_git_sha": "test-fixture",
             "acquisition_windows": {"started_at": now, "ended_at": now, "kind": "test_fixture"},
-            "models": [model.metadata],
+            "models": [model.metadata, vectorizer.metadata],
             "ontology_version": MAPPING_VERSION,
             "scorer_version": "candidate-jaccard-v1",
             "evaluation_report_id": "evaluation_fixture_v1",
         },
+        vectorizer,
     )

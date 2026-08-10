@@ -39,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let address: SocketAddr = env::var("API_BIND")
         .unwrap_or_else(|_| "127.0.0.1:8080".into())
         .parse()?;
-    let app = router(AppState::from_artifacts(store), &cors_origins)?;
+    let app = router(AppState::from_artifacts(store)?, &cors_origins)?;
     let listener = TcpListener::bind(address).await?;
     tracing::info!(%address, "API listening");
     axum::serve(listener, app)

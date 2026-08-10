@@ -7,6 +7,7 @@ from typing import Any
 from test_pipeline import SyntheticTransport
 
 from nextsteam_pipeline.acquisition import RateLimiter, SteamSpyClient, SteamStoreClient, acquire
+from nextsteam_pipeline.audit import ArtifactAuditError, audit_build
 from nextsteam_pipeline.benchmark import benchmark_embeddings, benchmark_indexes, synthetic_vectors
 from nextsteam_pipeline.discovery import (
     CatalogEntry,
@@ -18,7 +19,8 @@ from nextsteam_pipeline.discovery import (
 from nextsteam_pipeline.evaluation import candidate_graph_size_report
 from nextsteam_pipeline.ml import QwenEmbeddingAdapter
 from nextsteam_pipeline.models import LANES, Provenance
-from nextsteam_pipeline.scale import acquire_shards, compact_shards
+from nextsteam_pipeline.runner import publish_fixture, run_compacted_pipeline
+from nextsteam_pipeline.scale import acquire_shards, acquire_until_target, compact_shards
 from nextsteam_pipeline.vector import build_lane_indexes
 
 
@@ -89,13 +91,34 @@ def test_shards_compact_deterministically(tmp_path: Path) -> None:
     store = SteamStoreClient(transport, RateLimiter(1000, sleep=lambda _: None))
     spy = SteamSpyClient(transport, RateLimiter(1000, sleep=lambda _: None))
     shards = acquire_shards([3, 1, 2], tmp_path / "work", 2, store=store, spy=spy)
-    report = compact_shards(shards, tmp_path / "compact")
+    compacted = tmp_path / "compact"
+    report = compact_shards(shards, compacted)
+    release = run_compacted_pipeline(
+        compacted,
+        tmp_path / "build-work",
+        tmp_path / "builds",
+        source_git_sha="test",
+        pipeline_git_sha="test",
+    )
     assert report["games"] == 3
+    assert audit_build(release)["integrity"]["status"] == "passed"
     assert len(shards) == 2
     assert all(
         json.loads((shard / "manifest.json").read_text())["status"] == "complete"
         for shard in shards
     )
+
+
+def test_scale_target_backfills_skips_and_compacts_exact_count(tmp_path: Path) -> None:
+    transport = MissingTransport()
+    store = SteamStoreClient(transport, RateLimiter(1000, sleep=lambda _: None))
+    spy = SteamSpyClient(transport, RateLimiter(1000, sleep=lambda _: None))
+
+    shards = acquire_until_target([404, 1, 2, 3], 3, tmp_path / "work", 3, store=store, spy=spy)
+    report = compact_shards(shards, tmp_path / "compact", max_games=3)
+
+    assert len(shards) == 2
+    assert report["games"] == 3
 
 
 class Matrix(list[list[float]]):
@@ -169,10 +192,30 @@ def test_builds_one_index_per_lane(tmp_path: Path) -> None:
     assert len(created) == 4
 
 
+def test_artifact_audit_verifies_integrity_and_semantic_coverage(tmp_path: Path) -> None:
+    release = publish_fixture(tmp_path / "builds")
+
+    report = audit_build(release)
+
+    assert report["integrity"]["status"] == "passed"
+    assert report["coverage"]["graph_source_ratio"] == 1.0
+    assert set(report["coverage"]["lane_evidence"]) == set(LANES)
+
+    metadata = release / "metadata.json"
+    metadata.write_text(metadata.read_text() + " ")
+    try:
+        audit_build(release)
+    except ArtifactAuditError as error:
+        assert "checksum mismatch" in str(error)
+    else:
+        raise AssertionError("tampered artifact passed audit")
+
+
 def test_candidate_graph_sizes_report_actual_not_claimed() -> None:
     report = candidate_graph_size_report([], lambda _: [], (500, 1000, 2000))
     assert [row["requested_games"] for row in report["reports"]] == [500, 1000, 2000]  # type: ignore[index]
     assert all(row["actual_games"] == 0 for row in report["reports"])  # type: ignore[union-attr]
+    assert all(row["recall_at_k"] == 1.0 for row in report["reports"])  # type: ignore[union-attr]
 
 
 def test_select_slice_is_deterministic_unique_and_covers_popularity(tmp_path: Path) -> None:

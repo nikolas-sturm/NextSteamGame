@@ -31,3 +31,4 @@ coverage/
 /builds/
 /data/
 *.log
+/evaluation/reports/.*-indexes/

@@ -67,6 +67,10 @@ jobs:
       - run: uv sync --frozen
       - run: uv run nextsteam-pipeline publish-test-fixture --output builds/fixtures
       - run: bash tools/smoke.sh builds/fixtures/releases/synthetic-fixture-v1
+      - run: uv run nextsteam-pipeline audit-build --artifact builds/fixtures/releases/synthetic-fixture-v1 --output builds/fixtures/audit-after-smoke.json
+      - run: uvx --from maturin==1.14.1 maturin build --release --manifest-path bindings/python/Cargo.toml --interpreter python3 --out dist
+      - run: uv pip install --python .venv/bin/python dist/nextsteam_core-*.whl
+      - run: uv run python bindings/python/smoke.py
 
   containers:
     runs-on: ubuntu-latest

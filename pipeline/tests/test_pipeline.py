@@ -10,7 +10,9 @@ from typer.testing import CliRunner
 
 from nextsteam_pipeline.acquisition import RateLimiter, SteamSpyClient, SteamStoreClient, acquire
 from nextsteam_pipeline.cli import app
-from nextsteam_pipeline.models import LANES, Provenance, RawGame, ReviewEvidence
+from nextsteam_pipeline.evaluation import candidate_graph_size_report
+from nextsteam_pipeline.graph import build_candidate_graph
+from nextsteam_pipeline.models import LANES, CanonicalGame, Provenance, RawGame, ReviewEvidence
 from nextsteam_pipeline.runner import _cached_stage, publish_fixture
 from nextsteam_pipeline.semantics import DeterministicBaseline
 
@@ -106,7 +108,12 @@ def test_fixture_exact_runtime_contract_and_checksums(tmp_path: Path) -> None:
         "source/explanation_evidence.parquet",
     }
     actual = {path.relative_to(release).as_posix() for path in release.rglob("*") if path.is_file()}
-    assert actual == expected
+    assert expected <= actual
+    assert "vectors/config.json" in actual
+    vector_config = json.loads((release / "vectors/config.json").read_text())
+    assert vector_config["build_id"] == "synthetic-fixture-v1"
+    assert set(vector_config["lanes"]) == set(LANES)
+    assert all(any(path.startswith(f"vectors/{lane}/") for path in actual) for lane in LANES)
     manifest = json.loads((release / "manifest.json").read_text())
     assert set(manifest) == {
         "build_id",
@@ -176,3 +183,43 @@ def test_stage_failure_then_safe_resume(tmp_path: Path) -> None:
     assert _cached_stage(tmp_path, "semantic", build, lambda rows: rows) == [1, 2]
     assert _cached_stage(tmp_path, "semantic", build, lambda rows: rows) == [1, 2]
     assert attempts == 2
+
+
+def test_candidate_graph_bounds_universal_concept_degree() -> None:
+    games = [_canonical_game(appid, shared_concept=True) for appid in range(1, 101)]
+
+    edges = build_candidate_graph(games, max_neighbors=7)
+    report = candidate_graph_size_report(
+        games, lambda sample: build_candidate_graph(sample, max_neighbors=7), (100,), k=10
+    )
+
+    assert len(edges) == 700
+    assert max(sum(edge.source_appid == appid for edge in edges) for appid in range(1, 101)) == 7
+    assert 0.69 <= report["reports"][0]["recall_at_k"] <= 0.7  # type: ignore[index]
+
+
+def test_candidate_graph_does_not_treat_blank_identity_as_shared() -> None:
+    games = [_canonical_game(appid, shared_concept=False) for appid in range(1, 21)]
+
+    edges = build_candidate_graph(games, fallback_neighbors=2, max_neighbors=5)
+
+    assert len(edges) == 40
+
+
+def _canonical_game(appid: int, *, shared_concept: bool) -> CanonicalGame:
+    return CanonicalGame(
+        appid=appid,
+        name=f"Game {appid}",
+        short_description="",
+        release_year=None,
+        header_image_url=None,
+        steam_url=f"https://store.steampowered.com/app/{appid}",
+        developer="",
+        publisher="",
+        lanes={lane: (("shared",) if shared_concept else ()) for lane in LANES},
+        lane_evidence_ids={lane: () for lane in LANES},
+        evidence_ids=(),
+        mapping_version="test",
+        score=0.0,
+        owners_midpoint=appid * 100,
+    )

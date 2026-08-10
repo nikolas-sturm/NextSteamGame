@@ -1,11 +1,52 @@
 from __future__ import annotations
 
+import hashlib
+import math
+import re
 from dataclasses import dataclass
 from typing import Any, Literal, cast
 
 from .models import Lane
 
 QWEN_DIMENSIONS = (512, 768, 1024, 1536, 2560)
+
+
+@dataclass(frozen=True)
+class DeterministicEmbeddingAdapter:
+    """Auditable lexical baseline used until a pinned learned model is selected."""
+
+    dimensions: int = 64
+
+    def __post_init__(self) -> None:
+        if self.dimensions <= 0:
+            raise ValueError("dimensions must be positive")
+
+    @property
+    def metadata(self) -> dict[str, str]:
+        return {
+            "kind": "embedding",
+            "model": "deterministic-hashing-baseline",
+            "revision": "1.0.0",
+            "dimension": str(self.dimensions),
+            "dtype": "float32",
+            "offline_only": "true",
+        }
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        output = []
+        for text in texts:
+            vector = [0.0] * self.dimensions
+            tokens = re.findall(r"[a-z0-9]+", text.casefold())
+            for token in tokens:
+                digest = hashlib.sha256(token.encode()).digest()
+                for offset in range(0, 8, 2):
+                    index = int.from_bytes(digest[offset : offset + 2]) % self.dimensions
+                    vector[index] += 1.0 if digest[offset + 8] & 1 else -1.0
+            if not tokens:
+                vector[0] = 1.0
+            norm = math.sqrt(sum(value * value for value in vector))
+            output.append([value / norm for value in vector])
+        return output
 
 
 @dataclass

@@ -13,6 +13,7 @@ import polars as pl
 from .canonical import MAPPING_VERSION
 from .models import LANES, CanonicalGame, Edge, InterpretedEvidence, RawGame, ReviewEvidence
 from .util import atomic_json, checksum, stable_id
+from .vector import build_game_indexes
 
 
 def write_parquet(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -52,6 +53,7 @@ def publish(
     canonical: list[CanonicalGame],
     edges: list[Edge],
     provenance: dict[str, Any],
+    embedder: Any,
 ) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     created_at = str(provenance.get("created_at", datetime.now(UTC).isoformat()))
@@ -116,6 +118,7 @@ def publish(
         temporary / "graph.json", {"build_id": build_id, "lanes": list(LANES), "records": grouped}
     )
     atomic_json(temporary / "evidence.json", evidence)
+    build_game_indexes(temporary / "vectors", canonical, embedder, build_id)
     database = sqlite3.connect(temporary / "metadata.sqlite")
     try:
         database.execute(

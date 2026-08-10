@@ -6,11 +6,15 @@ from typing import Annotated, Literal, cast
 import typer
 
 from .acquisition import SteamSpyClient
+from .audit import audit_build
 from .benchmark import benchmark_embeddings, benchmark_indexes, synthetic_vectors, write_report
 from .discovery import Eligibility, discover_catalog, select_slice, write_catalog
+from .evaluation import candidate_graph_size_report
+from .graph import build_candidate_graph
 from .ml import QwenEmbeddingAdapter
-from .runner import publish_fixture, run_pipeline
-from .scale import ScaleTarget, acquire_shards, bounded_appids, compact_shards
+from .runner import load_canonical, publish_fixture, run_compacted_pipeline, run_pipeline
+from .scale import ScaleTarget, acquire_shards, acquire_until_target, compact_shards
+from .util import checksum, read_json
 from .vector import ZvecIndex
 
 AnyDimension = Literal[512, 768, 1024, 1536, "full"]
@@ -89,10 +93,38 @@ def acquire_scale(
     parsed: object = target if target == "full" else int(target)
     if parsed not in {500, 5000, 20000, "full"}:
         raise typer.BadParameter("target must be 500, 5000, 20000, or full")
-    selected = bounded_appids(_read_appids(appids), cast(ScaleTarget, parsed))
-    shards = acquire_shards(selected, workdir, shard_size)
-    write_report(workdir / "scale-report.json", compact_shards(shards, workdir / "compacted"))
+    selected = _read_appids(appids)
+    target_value = cast(ScaleTarget, parsed)
+    if target_value == "full":
+        shards = acquire_shards(selected, workdir, shard_size)
+        report = compact_shards(shards, workdir / "compacted")
+    else:
+        shards = acquire_until_target(selected, target_value, workdir, shard_size)
+        report = compact_shards(shards, workdir / "compacted", target_value)
+    write_report(workdir / "scale-report.json", report)
     typer.echo(workdir / "scale-report.json")
+
+
+@app.command("build-scale")
+def build_scale(
+    compacted: Annotated[
+        Path, typer.Option(exists=True, file_okay=False, help="Compacted scale directory.")
+    ],
+    workdir: Annotated[Path, typer.Option()],
+    output: Annotated[Path, typer.Option()],
+    source_git_sha: Annotated[str, typer.Option()] = "unknown",
+    pipeline_git_sha: Annotated[str, typer.Option()] = "unknown",
+) -> None:
+    """Build an immutable release from integrity-checked compacted shards."""
+    typer.echo(
+        run_compacted_pipeline(
+            compacted,
+            workdir,
+            output,
+            source_git_sha=source_git_sha,
+            pipeline_git_sha=pipeline_git_sha,
+        )
+    )
 
 
 @app.command("benchmark-embedding")
@@ -142,6 +174,44 @@ def benchmark_zvec(
     write_report(
         output, benchmark_indexes(factory, vectors, query_vectors, include_fp16=include_fp16)
     )
+
+
+@app.command("evaluate-candidate-graph")
+def evaluate_candidate_graph(
+    canonical: Annotated[
+        Path,
+        typer.Option(
+            exists=True,
+            dir_okay=False,
+            help="canonicalize.data.json from a completed pipeline work directory.",
+        ),
+    ],
+    output: Annotated[Path, typer.Option()],
+    k: Annotated[int, typer.Option(min=1)] = 10,
+    max_neighbors: Annotated[int, typer.Option(min=1)] = 500,
+) -> None:
+    """Measure bounded candidate recall against exhaustive ranking."""
+    rows = read_json(canonical)
+    if not isinstance(rows, list):
+        raise typer.BadParameter("canonical input must contain a JSON array")
+    report = candidate_graph_size_report(
+        load_canonical(rows),
+        lambda games: build_candidate_graph(games, max_neighbors=max_neighbors),
+        k=k,
+    )
+    report["source"] = {"path": str(canonical), "sha256": checksum(canonical)}
+    write_report(output, report)
+    typer.echo(output)
+
+
+@app.command("audit-build")
+def audit_build_command(
+    artifact: Annotated[Path, typer.Option(exists=True, file_okay=False)],
+    output: Annotated[Path, typer.Option()],
+) -> None:
+    """Validate one immutable build and report structural and semantic coverage."""
+    write_report(output, audit_build(artifact))
+    typer.echo(output)
 
 
 @app.command("publish-test-fixture")

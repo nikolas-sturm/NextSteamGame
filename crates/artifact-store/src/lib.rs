@@ -53,6 +53,7 @@ struct EvidenceEnvelope {
 }
 
 pub struct ArtifactStore {
+    pub root: PathBuf,
     pub manifest: Manifest,
     pub metadata: BTreeMap<GameId, Game>,
     pub evidence: BTreeMap<String, Evidence>,
@@ -154,6 +155,7 @@ impl ArtifactStore {
             return Err(ArtifactError::MissingEvidence(id.into()));
         }
         Ok(Self {
+            root: root.to_path_buf(),
             manifest,
             metadata,
             evidence,

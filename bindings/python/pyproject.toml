@@ -1,0 +1,12 @@
+[build-system]
+requires = ["maturin>=1.14,<2"]
+build-backend = "maturin"
+
+[project]
+name = "nextsteam-core"
+version = "0.1.0"
+requires-python = ">=3.13"
+
+[tool.maturin]
+module-name = "nextsteam_core"
+features = ["pyo3/extension-module"]

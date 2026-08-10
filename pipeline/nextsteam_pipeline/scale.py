@@ -10,7 +10,7 @@ import polars as pl
 from .acquisition import SteamSpyClient, SteamStoreClient, acquire
 from .models import StageManifest
 from .storage import write_parquet
-from .util import atomic_json, checksum
+from .util import atomic_json, checksum, read_json
 
 ScaleTarget = Literal[500, 5000, 20000, "full"]
 
@@ -26,15 +26,18 @@ def acquire_shards(
     workdir: Path,
     shard_size: int = 500,
     *,
+    shard_offset: int = 0,
     store: SteamStoreClient | None = None,
     spy: SteamSpyClient | None = None,
 ) -> list[Path]:
     if shard_size <= 0 or shard_size > 500:
         raise ValueError("shard_size must be between 1 and 500")
+    if shard_offset < 0:
+        raise ValueError("shard_offset must be non-negative")
     outputs: list[Path] = []
     for start in range(0, len(appids), shard_size):
         shard = appids[start : start + shard_size]
-        shard_id = f"{start // shard_size:06d}"
+        shard_id = f"{shard_offset + start // shard_size:06d}"
         root = workdir / "shards" / shard_id
         manifest_path = root / "manifest.json"
         games_path = root / "games.parquet"
@@ -83,19 +86,64 @@ def acquire_shards(
     return outputs
 
 
-def compact_shards(shards: list[Path], output: Path) -> dict[str, Any]:
+def acquire_until_target(
+    appids: list[int],
+    target: int,
+    workdir: Path,
+    shard_size: int = 500,
+    *,
+    store: SteamStoreClient | None = None,
+    spy: SteamSpyClient | None = None,
+) -> list[Path]:
+    if target <= 0:
+        raise ValueError("target must be positive")
+    outputs: list[Path] = []
+    acquired = 0
+    cursor = 0
+    while acquired < target and cursor < len(appids):
+        available = len(appids) - cursor
+        request_count = min(shard_size, available, max(target - acquired, min(50, available)))
+        batch = appids[cursor : cursor + request_count]
+        new_outputs = acquire_shards(
+            batch,
+            workdir,
+            request_count,
+            shard_offset=len(outputs),
+            store=store,
+            spy=spy,
+        )
+        outputs.extend(new_outputs)
+        acquired += sum(
+            int(read_json(path / "manifest.json")["counts"]["games"]) for path in new_outputs
+        )
+        cursor += request_count
+    if acquired < target:
+        raise ValueError(f"catalog exhausted after acquiring {acquired} of {target} eligible games")
+    return outputs
+
+
+def compact_shards(
+    shards: list[Path], output: Path, max_games: int | None = None
+) -> dict[str, Any]:
     if not shards:
         raise ValueError("at least one shard required")
+    if max_games is not None and max_games <= 0:
+        raise ValueError("max_games must be positive")
     output.mkdir(parents=True, exist_ok=True)
     games_sources = [str(path / "games.parquet") for path in sorted(shards)]
     review_sources = [str(path / "reviews.parquet") for path in sorted(shards)]
     games_path, reviews_path = output / "games.parquet", output / "reviews.parquet"
-    pl.scan_parquet(games_sources).unique(subset="appid", keep="first").sort(
-        "appid"
-    ).collect().write_parquet(games_path, use_pyarrow=True)
-    pl.scan_parquet(review_sources).unique(subset="evidence_id", keep="first").sort(
-        ["appid", "evidence_id"]
-    ).collect().write_parquet(reviews_path, use_pyarrow=True)
+    games = pl.scan_parquet(games_sources).unique(subset="appid", keep="first").sort("appid")
+    if max_games is not None:
+        games = games.head(max_games)
+    game_rows = games.collect()
+    if max_games is not None and len(game_rows) != max_games:
+        raise ValueError(f"expected {max_games} compacted games, found {len(game_rows)}")
+    game_rows.write_parquet(games_path, use_pyarrow=True)
+    selected = pl.scan_parquet(games_path).select("appid")
+    pl.scan_parquet(review_sources).unique(subset="evidence_id", keep="first").join(
+        selected, on="appid", how="semi"
+    ).sort(["appid", "evidence_id"]).collect().write_parquet(reviews_path, use_pyarrow=True)
     database = duckdb.connect()
     try:
         game_row = database.execute(

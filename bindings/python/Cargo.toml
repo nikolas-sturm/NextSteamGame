@@ -1,14 +1,16 @@
 [package]
-name = "retrieval"
+name = "nextsteam-python"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[lib]
+name = "nextsteam_core"
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
 domain.workspace = true
-serde.workspace = true
+pyo3.workspace = true
+recommendation-core.workspace = true
 serde_json.workspace = true
-tempfile.workspace = true
-thiserror.workspace = true
-zvec-rust.workspace = true

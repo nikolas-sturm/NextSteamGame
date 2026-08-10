@@ -17,7 +17,7 @@ use domain::{
     ApiErrorBody, ApiErrorDetail, BuildId, Evidence, Game, GameId, Lane, Recommendation,
     RecommendationRequest, RecommendationResponse, ScoreContribution,
 };
-use retrieval::{CandidateRetriever, ImmutableGraph};
+use retrieval::{CandidateRetriever, FallbackRetriever, ImmutableGraph, ZvecRetriever};
 use serde::{Deserialize, Serialize};
 use tower_http::{
     cors::{AllowOrigin, CorsLayer},
@@ -39,13 +39,23 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn from_artifacts(store: ArtifactStore) -> Self {
-        Self {
-            build_id: store.manifest.build_id,
+    pub fn from_artifacts(store: ArtifactStore) -> Result<Self, String> {
+        let build_id = store.manifest.build_id;
+        let primary: Arc<dyn CandidateRetriever> = Arc::new(store.graph);
+        let retriever: Arc<dyn CandidateRetriever> =
+            if store.root.join("vectors/config.json").is_file() {
+                let fallback =
+                    Arc::new(ZvecRetriever::open(store.root.join("vectors"), &build_id)?);
+                Arc::new(FallbackRetriever::new(primary, fallback, 50))
+            } else {
+                primary
+            };
+        Ok(Self {
+            build_id,
             metadata: Arc::new(store.metadata),
             evidence: Arc::new(store.evidence),
-            retriever: Arc::new(store.graph),
-        }
+            retriever,
+        })
     }
 
     pub fn fixture(

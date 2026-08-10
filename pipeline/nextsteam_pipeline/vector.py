@@ -7,7 +7,7 @@ from typing import Any, Literal, Protocol
 
 class VectorIndex(Protocol):
     def upsert(
-        self, ids: list[str], vectors: list[list[float]], metadata: list[dict[str, str]]
+        self, ids: list[str], vectors: list[list[float]], metadata: list[dict[str, Any]]
     ) -> None: ...
 
     def query(self, vector: list[float], limit: int) -> list[tuple[str, float]]: ...
@@ -59,7 +59,7 @@ class ZvecIndex:
         self._collection = zvec.create_and_open(str(path), schema=schema)
 
     def upsert(
-        self, ids: list[str], vectors: list[list[float]], metadata: list[dict[str, str]]
+        self, ids: list[str], vectors: list[list[float]], metadata: list[dict[str, Any]]
     ) -> None:
         if not (len(ids) == len(vectors) == len(metadata)):
             raise ValueError("ids, vectors, and metadata must have equal lengths")
@@ -93,6 +93,53 @@ class ZvecIndex:
             self._zvec.Query(field_name="embedding", vector=vector), topk=limit
         )
         return [(str(doc.id), float(doc.score)) for doc in docs]
+
+
+def build_game_indexes(
+    root: Path,
+    games: list[Any],
+    embedder: Any,
+    build_id: str,
+    factory: Any = ZvecIndex,
+    index_kind: Literal["flat", "hnsw"] = "flat",
+) -> dict[str, Any]:
+    from .models import LANES
+
+    root.mkdir(parents=True, exist_ok=True)
+    configuration: dict[str, Any] = {
+        "build_id": build_id,
+        "model": embedder.metadata,
+        "lanes": {},
+    }
+    for lane in LANES:
+        lane_games = [game for game in games if game.lanes[lane]]
+        if not lane_games:
+            continue
+        vectors = embedder.embed([" ".join(game.lanes[lane]) for game in lane_games])
+        index = factory(root / lane, len(vectors[0]), index_kind=index_kind)
+        index.upsert(
+            [str(game.appid) for game in lane_games],
+            vectors,
+            [
+                {
+                    "appid": game.appid,
+                    "concepts": list(game.lanes[lane]),
+                    "evidence_ids": list(game.lane_evidence_ids[lane]),
+                }
+                for game in lane_games
+            ],
+        )
+        index.close()
+        configuration["lanes"][lane] = {
+            "count": len(vectors),
+            "dimensions": len(vectors[0]),
+            "index_kind": index_kind,
+            "dtype": "fp32",
+        }
+    (root / "config.json").write_text(
+        json.dumps(configuration, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    return configuration
 
 
 def build_lane_indexes(
