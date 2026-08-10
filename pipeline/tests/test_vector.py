@@ -20,6 +20,20 @@ def test_zvec_persists_and_queries(tmp_path: Path) -> None:
     assert reopened.query([0.0, 1.0, 0.0], 1)[0][0] == "game_2"
 
 
+def test_zvec_chunks_writes_above_native_batch_limit(tmp_path: Path) -> None:
+    index = ZvecIndex(tmp_path / "vectors", dimensions=2)
+    count = 1025
+
+    index.upsert(
+        [f"game_{item}" for item in range(count)],
+        [[1.0, float(item % 2)] for item in range(count)],
+        [{"item": item} for item in range(count)],
+    )
+
+    assert index.query([1.0, 0.0], 1)
+    index.close()
+
+
 def test_zvec_rejects_invalid_shapes(tmp_path: Path) -> None:
     index = ZvecIndex(tmp_path / "vectors", dimensions=2)
     with pytest.raises(ValueError, match="equal lengths"):

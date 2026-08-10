@@ -75,8 +75,10 @@ class ZvecIndex:
             )
             for item_id, vector, fields in zip(ids, vectors, metadata, strict=True)
         ]
-        self._collection.upsert(docs)
-        self._collection.flush()
+        for start in range(0, len(docs), 1024):
+            self._collection.upsert(docs[start : start + 1024])
+        if docs:
+            self._collection.flush()
 
     def close(self) -> None:
         """Release native collection lock before opening collection elsewhere."""
