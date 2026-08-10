@@ -1,0 +1,33 @@
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Editors and operating systems
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Rust
+/target/
+
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.py[cod]
+
+# Node.js and Next.js
+node_modules/
+.next/
+out/
+coverage/
+
+# Local build data
+/builds/
+/data/
+*.log
