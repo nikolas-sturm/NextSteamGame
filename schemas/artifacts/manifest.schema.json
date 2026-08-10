@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nextsteamgame.example/schemas/artifacts/manifest-v1.json",
+  "title": "NextSteamGame immutable build manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "build_id",
+    "created_at",
+    "artifact_schema_version",
+    "api_compatibility_version",
+    "source_git_sha",
+    "pipeline_git_sha",
+    "acquisition_windows",
+    "models",
+    "ontology_version",
+    "scorer_version",
+    "counts",
+    "checksums",
+    "evaluation_report_id"
+  ],
+  "properties": {
+    "build_id": {"type": "string", "minLength": 1, "maxLength": 128},
+    "created_at": {"type": "string", "format": "date-time"},
+    "artifact_schema_version": {"const": 1},
+    "api_compatibility_version": {"const": 1},
+    "source_git_sha": {"type": "string"},
+    "pipeline_git_sha": {"type": "string"},
+    "acquisition_windows": {"type": "object"},
+    "models": {"type": "array", "items": {"type": "object"}},
+    "ontology_version": {"type": "string"},
+    "scorer_version": {"type": "string"},
+    "counts": {
+      "type": "object",
+      "required": ["games", "edges", "evidence"],
+      "properties": {
+        "games": {"type": "integer", "minimum": 0},
+        "edges": {"type": "integer", "minimum": 0},
+        "evidence": {"type": "integer", "minimum": 0}
+      }
+    },
+    "checksums": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+    },
+    "evaluation_report_id": {"type": "string"}
+  }
+}

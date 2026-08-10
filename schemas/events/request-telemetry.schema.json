@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nextsteamgame.example/schemas/events/request-telemetry-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["request_id", "build_id", "scorer_version", "retrieval_mode", "candidate_count", "result_count", "total_ms"],
+  "properties": {
+    "request_id": {"type": "string"},
+    "build_id": {"type": "string"},
+    "scorer_version": {"type": "string"},
+    "retrieval_mode": {"enum": ["candidate_graph", "dynamic_vector", "sparse_fallback"]},
+    "candidate_count": {"type": "integer", "minimum": 0},
+    "result_count": {"type": "integer", "minimum": 0},
+    "graph_lookup_ms": {"type": "number", "minimum": 0},
+    "vector_lookup_ms": {"type": "number", "minimum": 0},
+    "rerank_ms": {"type": "number", "minimum": 0},
+    "hydration_ms": {"type": "number", "minimum": 0},
+    "total_ms": {"type": "number", "minimum": 0},
+    "degradation_reason": {"type": ["string", "null"]},
+    "error_category": {"type": ["string", "null"]}
+  }
+}

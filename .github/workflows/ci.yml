@@ -1,0 +1,93 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv sync --frozen --all-groups
+      - run: uv run ruff format --check pipeline
+      - run: uv run ruff check pipeline
+      - run: uv run mypy
+      - run: uv run pytest --cov=nextsteam_pipeline --cov-report=term-missing
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+      - run: npm run generate:api
+      - run: git diff --exit-code -- src/transport/generated.ts
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run e2e
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run nextsteam-pipeline publish-test-fixture --output builds/fixtures
+      - run: bash tools/smoke.sh builds/fixtures/releases/synthetic-fixture-v1
+
+  containers:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        image: [api, web, pipeline]
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker build --file infra/containers/${{ matrix.image }}.Dockerfile --tag nextsteam-${{ matrix.image }}:ci .
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: astral-sh/setup-uv@v7
+      - run: uvx pip-audit --locked .
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - run: npm audit --omit=dev --audit-level=high
+        working-directory: apps/web
