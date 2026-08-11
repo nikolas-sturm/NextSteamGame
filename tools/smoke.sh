@@ -23,20 +23,46 @@ fi
 
 cd "$repo_root"
 cargo build --locked -p api
-environment=("ARTIFACT_DIR=$artifact_dir" "API_BIND=127.0.0.1:$port" "RUST_LOG=warn")
+zvec_library="$(find target/debug/build -path '*/out/zvec-prebuilt/libzvec_c_api.so' -print -quit)"
+if [[ -z "$zvec_library" ]]; then
+  echo "Zvec runtime library was not produced" >&2
+  exit 1
+fi
+environment=(
+  "ARTIFACT_DIR=$artifact_dir"
+  "API_BIND=127.0.0.1:$port"
+  "LD_LIBRARY_PATH=$(dirname "$zvec_library")${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  "RUST_LOG=warn"
+)
 if [[ "$fixture_kind" == "test_fixture" ]]; then
   environment+=("ALLOW_FIXTURE_ARTIFACTS=1")
 fi
-env "${environment[@]}" target/debug/api >"${TMPDIR:-/tmp}/nextsteam-api-smoke.log" 2>&1 &
+api_log="${TMPDIR:-/tmp}/nextsteam-api-smoke.log"
+env "${environment[@]}" target/debug/api >"$api_log" 2>&1 &
 api_pid=$!
 trap 'kill "$api_pid" 2>/dev/null || true' EXIT
 
+ready=false
 for _ in $(seq 1 $((ready_timeout_seconds * 4))); do
   if curl --fail --silent "http://127.0.0.1:$port/readyz" >/dev/null; then
+    ready=true
     break
+  fi
+  if ! kill -0 "$api_pid" 2>/dev/null; then
+    status=0
+    wait "$api_pid" || status=$?
+    cat "$api_log" >&2
+    echo "API exited before readiness with code $status" >&2
+    [[ "$status" -ne 0 ]] || status=1
+    exit "$status"
   fi
   sleep 0.25
 done
+if [[ "$ready" != "true" ]]; then
+  cat "$api_log" >&2
+  echo "API did not become ready" >&2
+  exit 1
+fi
 
 curl --fail --silent "http://127.0.0.1:$port/healthz" \
   | jq --arg build_id "$build_id" --exit-status '.status == "ok" and .build_id == $build_id' >/dev/null
