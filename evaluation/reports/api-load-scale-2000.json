@@ -1,0 +1,26 @@
+{
+  "build_id": "build_38e83bdd73f0c28cf13b37c2",
+  "concurrency": 25,
+  "elapsed_seconds": 3.022634699998889,
+  "error_samples": [],
+  "errors": 0,
+  "kind": "api_load",
+  "latency_ms": {
+    "maximum": 1245.1829999990878,
+    "p50": 38.45810000348138,
+    "p95": 122.87190000643022,
+    "p99": 1163.254400002188
+  },
+  "limitations": [
+    "Local load measurements do not predict production network or host performance."
+  ],
+  "report_version": 1,
+  "requests": 1000,
+  "requests_per_second": 330.83719974509904,
+  "retrieval_modes": {
+    "candidate_graph": 1000
+  },
+  "status_counts": {
+    "200": 1000
+  }
+}

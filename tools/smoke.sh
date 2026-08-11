@@ -3,6 +3,7 @@ set -euo pipefail
 
 artifact_dir="${1:?artifact directory is required}"
 port="${2:-18080}"
+ready_timeout_seconds="${3:-120}"
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 build_id="$(jq -r '.build_id' "$artifact_dir/manifest.json")"
 search_name="$(jq -r '.games[0].name' "$artifact_dir/metadata.json")"
@@ -30,7 +31,7 @@ env "${environment[@]}" target/debug/api >"${TMPDIR:-/tmp}/nextsteam-api-smoke.l
 api_pid=$!
 trap 'kill "$api_pid" 2>/dev/null || true' EXIT
 
-for _ in $(seq 1 40); do
+for _ in $(seq 1 $((ready_timeout_seconds * 4))); do
   if curl --fail --silent "http://127.0.0.1:$port/readyz" >/dev/null; then
     break
   fi

@@ -90,7 +90,8 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
       - uses: astral-sh/setup-uv@v7
-      - run: uvx pip-audit --locked .
+      - run: uv export --frozen --all-extras --all-groups --no-emit-project --format requirements.txt --output-file /tmp/requirements.txt
+      - run: uvx pip-audit --require-hashes --requirement /tmp/requirements.txt
       - uses: actions/setup-node@v5
         with:
           node-version: 24

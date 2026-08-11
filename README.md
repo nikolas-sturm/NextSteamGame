@@ -8,11 +8,11 @@ NextSteamGame v2 is a greenfield product for finding games that share qualities 
 
 Runnable vertical slice exists for all three product layers:
 
-- Python 3.13 pipeline acquires fresh upstream data and publishes immutable builds.
-- Rust API validates builds and serves deterministic graph-backed recommendations.
+- Python 3.13 pipeline acquires resumable upstream shards and publishes immutable graph and Zvec builds.
+- Rust API validates builds and serves deterministic graph retrieval with dynamic-vector fallback.
 - Next.js web product supports search, weighted intent, explanations, refinement, and sharing.
 
-Synthetic artifacts exist only for tests and local smoke checks. Production runtime rejects fixture builds unless explicitly enabled. Human relevance studies, full-catalog acquisition, GPU model benchmarks, alpha evidence, and production launch remain measured external gates, not assumed achievements.
+Exact 500- and 2,000-game upstream stages, artifact audits, candidate recall, and local concurrent API baselines are measured in [evaluation reports](evaluation/reports/README.md). Synthetic artifacts remain test-only, and production rejects them unless explicitly enabled. Human relevance studies, GPU model selection, 5,000/full-catalog stages, alpha evidence, and production launch remain measured external gates, not assumed achievements.
 
 See [roadmap status](docs/roadmap-status.md).
 

@@ -4,7 +4,8 @@ param(
     [int]$Port = 18080,
     [string]$LoadOutput = "",
     [int]$LoadRequests = 1000,
-    [int]$LoadConcurrency = 25
+    [int]$LoadConcurrency = 25,
+    [int]$ReadyTimeoutSeconds = 120
 )
 
 $ErrorActionPreference = "Stop"
@@ -57,12 +58,15 @@ $process = Start-Process -FilePath $binary -PassThru -NoNewWindow -Environment $
 
 try {
     $ready = $false
-    foreach ($attempt in 1..40) {
+    foreach ($attempt in 1..($ReadyTimeoutSeconds * 4)) {
         try {
             Invoke-RestMethod -Uri "http://127.0.0.1:$Port/readyz" | Out-Null
             $ready = $true
             break
         } catch {
+            if ($process.HasExited) {
+                throw "API exited before readiness with code $($process.ExitCode)"
+            }
             Start-Sleep -Milliseconds 250
         }
     }
